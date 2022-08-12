@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const Counter = () => {
   const [count, setCount] = useState(0);
+
   return (
     <div className="flex h-screen">
       <div className="m-auto">
