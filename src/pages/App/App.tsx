@@ -1,138 +1,272 @@
 import React, { useEffect, useState } from 'react';
-import { z } from 'zod';
-
-import { Pair } from './App.types';
 
 import './App.css';
 import { Button, Loader, Table, Textarea } from '@mantine/core';
+import { watchListSchema } from '../../lib/dexscreener/watchlist.dto';
+import { getUrl, loadPairInfo } from '../../lib/dexscreener/api';
+import { useLocalStorage } from '@mantine/hooks';
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+} from '@tanstack/react-table';
+import { PairDto, RootPairDto } from '../../lib/dexscreener/pair.dto';
+import { useForm } from '@mantine/form';
+import { z, ZodError } from 'zod';
+import { chunk } from '../../utils/array';
 
 const App = () => {
-  const [watchList, setWatchList] = useState('');
   const [watchlistLoading, setWatchlistLoading] = useState(false);
-  const [pairs, setPairs] = useState<Array<string>>([]);
-  const [data, setData] = useState<Array<Record<string, any>>>([]);
+  const [data, setData] = useState<Partial<PairDto>[]>([]);
 
-  const handleWatchlistChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setWatchList(event.target.value);
+  const [watchListStorage, setWatchListStorage] = useLocalStorage<string>({
+    key: 'watchlist',
+    deserialize: (value) => {
+      return JSON.parse(value);
+    },
+  });
 
-    const pairSchema = z.object({
-      timestamp: z.number(),
-      pairAddress: z.string(),
-      platformId: z.string(),
+  const form = useForm({
+    initialValues: {
+      watchlist: '',
+    },
+
+    validate: {
+      watchlist: (value) => {
+        try {
+          watchListSchema.parse(JSON.parse(value));
+
+          return null;
+        } catch (err) {
+          if (err instanceof ZodError) {
+            return 'Incorrect input';
+          }
+
+          if (err instanceof SyntaxError) {
+            return 'Unable to parse JSON input';
+          }
+
+          return 'Error';
+        }
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (watchListStorage.toString().length > 0) {
+      try {
+        watchListSchema.parse(JSON.parse(watchListStorage));
+        form.setFieldValue('watchlist', watchListStorage);
+      } finally {
+      }
+    }
+  }, [watchListStorage]);
+
+  const handleFormSubmit = form.onSubmit(async (value) => {
+    try {
+      const data = watchListSchema.parse(JSON.parse(value.watchlist));
+      setWatchListStorage(value.watchlist);
+
+      await loadWatchlistPairs(data);
+    } catch (err) {
+      console.error('caught', err);
+    }
+  });
+
+  const loadWatchlistPairs = async (watchList: z.infer<typeof watchListSchema>) => {
+    setWatchlistLoading(true);
+
+    const pairUrls = watchList.lists
+      .flatMap(({ pairs }) =>
+        pairs.map(({ pairAddress, platformId }) => ({ pairAddress, platformId })),
+      )
+      .reduce((acc, { pairAddress, platformId }) => {
+        if (!acc[platformId]) {
+          return {
+            ...acc,
+            [platformId]: getUrl({
+              pairAddress,
+              platformId,
+            }),
+          };
+        }
+
+        const currentUrl = acc[platformId];
+
+        return {
+          ...acc,
+          [platformId]: [currentUrl, pairAddress].join(','),
+        };
+      }, {} as Record<string, string>);
+
+    const optimizedUrls = Object.values(pairUrls).flatMap((url) => {
+      const pairParams = url.split('/');
+      if (pairParams.length === 0) throw new Error('Unable to get pairs from url');
+
+      const pairs = pairParams.pop()?.split(',');
+
+      if (pairs && pairs.length > 10) {
+        const baseURL = pairParams.join('/');
+
+        const chunks = chunk(pairs, 10);
+
+        return chunks.map((chunk) => {
+          return [baseURL, chunk.join(',')].join('/');
+        });
+      }
+
+      return url;
     });
 
-    const watchListSchema = z.object({
-      updatedAtTimestamp: z.number(),
-      lists: z.array(
-        z.object({ id: z.string(), name: z.string(), pairs: z.array(pairSchema) }),
-      ),
-    });
-
-    const data = watchListSchema.parse(JSON.parse(event.target.value));
-
-    const pairs = data.lists.flatMap(({ pairs }) =>
-      pairs.map(({ pairAddress, platformId }) => ({ pairAddress, platformId })),
+    const requests = await Promise.allSettled(
+      Object.values(optimizedUrls).map(loadPairInfo),
     );
 
-    setPairs(pairs.map(getUrl));
-  };
+    const data = requests
+      .filter((p) => p.status === 'fulfilled')
+      .map((p) => (p as PromiseFulfilledResult<RootPairDto>).value)
+      .flatMap((p) => p.pairs);
 
-  const getUrl = ({
-    pairAddress,
-    platformId,
-  }: {
-    pairAddress: string;
-    platformId: string;
-  }) => {
-    const base_url = 'https://api.dexscreener.com/latest/dex/pairs';
+    console.log('d', data);
 
-    return [base_url, platformId, pairAddress].join('/');
-  };
-  const loadPairInfo = async (url: string): Promise<any> => {
-    try {
-      const result = await fetch(url);
-
-      const data = await result.json();
-
-      return data;
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadAllPairs = async (urls: Array<string>) => {
-    const requests = await Promise.allSettled(urls.map(loadPairInfo));
-
-    const data = requests.map((r) => {
-      if (r.status === 'fulfilled') {
-        return {
-          name: r.value.pair.baseToken.name,
-          priceChange: r.value.pair.priceChange,
-          volume: r.value.pair.volume,
-          price: r.value.pair.priceUsd,
-        };
-      }
-    });
-
-    setData(data as any);
+    setData(data);
     setWatchlistLoading(false);
   };
 
-  useEffect(() => {}, [pairs]);
+  const columns = React.useMemo<ColumnDef<Partial<PairDto>>[]>(
+    () => [
+      {
+        accessorKey: '#',
+        cell: (info) => info.cell.row.index + 1,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.baseToken?.name,
+        id: 'name',
+        cell: (info) => info.getValue(),
+        header: () => <span>Name</span>,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.priceUsd,
+        id: 'price',
+        cell: (info) => info.getValue(),
+        header: () => <span>price</span>,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.priceChange?.h1,
+        id: 'price Change (1H) ',
+        cell: (info) => info.getValue(),
+        header: () => <span>Price Change (1H) </span>,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.volume?.h1,
+        id: 'Volume Change (1H) ',
+        cell: (info) => info.getValue(),
+        header: () => <span>Volume Change (1H) </span>,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.priceChange?.h24,
+        id: 'Price Change (24 H) ',
+        cell: (info) => info.getValue(),
+        header: () => <span>Price Change (24H) </span>,
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorFn: (row) => row.volume?.h24,
+        id: 'Volume Change (24 H) ',
+        cell: (info) => info.getValue(),
+        header: () => <span>Volume Change (24H) </span>,
+        footer: (props) => props.column.id,
+      },
+    ],
+    [],
+  );
 
-  const loadWatchList = (event: React.MouseEvent) => {
-    event.preventDefault();
-    setWatchlistLoading(true);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
 
-    if (pairs.length > 0) {
-      loadAllPairs(pairs);
-    }
-  };
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    debugTable: true,
+  });
 
   return (
     <div className="flex h-screen">
       <div className="m-auto">
-        <Textarea
-          onChange={handleWatchlistChange}
-          placeholder="Paste your watchlist here"
-          label="Your watchlist "
-          size="lg"
-          radius="md"
-          value={watchList}
-          required
-        />
+        <form onSubmit={handleFormSubmit}>
+          <Textarea
+            placeholder="Paste your watchlist here"
+            label="Your watchlist "
+            size="lg"
+            radius="md"
+            value={watchListStorage}
+            required
+            {...form.getInputProps('watchlist')}
+          />
 
-        <Button onClick={loadWatchList} color="cyan" radius="md" size="lg">
-          Load
-        </Button>
+          <Button type="submit" color="cyan" radius="md" size="lg">
+            Load
+          </Button>
+        </form>
 
         {watchlistLoading && <Loader variant="dots" />}
 
         <Table className="border">
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Name</th>
-              <th>Price </th>
-              <th>Price Change (1H)</th>
-              <th>Volume (1H)</th>
-              <th>Price Change (24H)</th>
-              <th>Volume (24H)</th>
-            </tr>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  return (
+                    <th key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder ? null : (
+                        <div
+                          {...{
+                            className: header.column.getCanSort()
+                              ? 'cursor-pointer select-none'
+                              : '',
+                            onClick: header.column.getToggleSortingHandler(),
+                          }}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                          {{
+                            asc: ' 🔼',
+                            desc: ' 🔽',
+                          }[header.column.getIsSorted() as string] ?? null}
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
           </thead>
-
           <tbody>
-            {data.map((d, index) => {
-              console.log(d);
+            {table.getRowModel().rows.map((row) => {
               return (
-                <tr key={index} className="border flex justify-between">
-                  <td> {index} </td>
-                  <td> {d.name} </td>
-                  <td> {d.price} </td>
-                  <td>{d.priceChange.h1}</td>
-                  <td>{d.volume.h1}</td>
-                  <td>{d.priceChange.h24}</td>
-                  <td>{d.volume.h24}</td>
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => {
+                    return (
+                      <td key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
