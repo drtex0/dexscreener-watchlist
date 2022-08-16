@@ -1,4 +1,4 @@
-import { Textarea, Button } from '@mantine/core';
+import { Textarea, Button, Box } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useLocalStorage } from '@mantine/hooks';
 import { useEffect } from 'react';
@@ -29,10 +29,6 @@ export const WatchlistForm = ({ handleFormSubmit }: WatchlistFormProps) => {
             return 'Incorrect JSON format';
           }
 
-          if (err instanceof SyntaxError) {
-            return 'Unable to parse JSON input';
-          }
-
           return 'Unknown error';
         }
       },
@@ -47,26 +43,35 @@ export const WatchlistForm = ({ handleFormSubmit }: WatchlistFormProps) => {
   });
 
   useEffect(() => {
-    if (watchList && watchList.length > 0) {
+    if (watchList) {
       form.setFieldValue('watchList', watchList);
     }
   }, [watchList]);
 
   return (
-    <form onSubmit={handleOnSubmitForm}>
+    <form onSubmit={handleOnSubmitForm} className="bg">
       <Textarea
         placeholder="Paste your watchlist here"
         label="Your watchlist"
         size="lg"
+        minRows={10}
         radius="md"
         value={watchList}
         required
         {...form.getInputProps('watchList')}
       />
 
-      <Button type="submit" color="cyan" radius="md" size="lg">
-        Load
-      </Button>
+      <Box sx={{ paddingTop: '1rem', textAlign: 'center' }}>
+        <Button
+          type="submit"
+          color="cyan"
+          radius="md"
+          size="lg"
+          sx={{ textAlign: 'center' }}
+        >
+          Load
+        </Button>
+      </Box>
     </form>
   );
 };

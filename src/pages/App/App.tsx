@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Loader } from '@mantine/core';
+import { Box, Loader } from '@mantine/core';
 import { watchListSchema } from '../../lib/dexscreener/watchlist.dto';
 import { PairDto } from '../../lib/dexscreener/pair.dto';
 import { z } from 'zod';
@@ -20,7 +20,6 @@ const App = () => {
       setData(data);
     } catch (err) {
       alert('Error loading pair');
-      console.error('caught', err);
     } finally {
       setWatchlistLoading(false);
     }
@@ -31,7 +30,11 @@ const App = () => {
       <div className="m-auto">
         <WatchlistForm handleFormSubmit={handleFormSubmit} />
 
-        {watchlistLoading && <Loader variant="dots" />}
+        {watchlistLoading && (
+          <Box sx={{ textAlign: 'center' }}>
+            <Loader variant="dots" />
+          </Box>
+        )}
 
         <WatchlistData data={data} />
       </div>

@@ -7,7 +7,7 @@ module.exports = {
   },
   transformIgnorePatterns: ['[/\\\\]node_modules[/\\\\].+\\.(js|jsx|mjs|cjs|ts|tsx)$'],
   moduleDirectories: ['node_modules', __dirname],
-  // setupFilesAfterEnv: ['jest-extended'],
+  collectCoverageFrom: ['**/*.{ts,tsx}', '!**/node_modules/**'],
   resetMocks: true,
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['@testing-library/jest-dom/extend-expect'],
