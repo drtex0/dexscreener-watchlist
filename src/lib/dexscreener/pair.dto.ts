@@ -1,12 +1,6 @@
 import { z } from 'zod';
 
-export const baseTokenSchema = z.object({
-  address: z.string(),
-  name: z.string(),
-  symbol: z.string(),
-});
-
-export const quoteTokenSchema = z.object({
+export const tokenSchema = z.object({
   address: z.string(),
   name: z.string(),
   symbol: z.string(),
@@ -49,8 +43,8 @@ export const pairSchema = z.object({
   dexId: z.string(),
   url: z.string(),
   pairAddress: z.string(),
-  baseToken: baseTokenSchema,
-  quoteToken: quoteTokenSchema,
+  baseToken: tokenSchema,
+  quoteToken: tokenSchema,
   priceNative: z.string(),
   priceUsd: z.string(),
   txns: txnsSchema,
@@ -61,11 +55,11 @@ export const pairSchema = z.object({
   pairCreatedAt: z.number().optional(),
 });
 
-export const rootObjectSchema = z.object({
+export const rootPairSchema = z.object({
   schemaVersion: z.string(),
   pairs: z.array(pairSchema),
-  pair: z.null(),
+  pair: pairSchema.or(z.null()),
 });
 
 export type PairDto = z.infer<typeof pairSchema>;
-export type RootPairDto = z.infer<typeof rootObjectSchema>;
+export type RootPairDto = z.infer<typeof rootPairSchema>;

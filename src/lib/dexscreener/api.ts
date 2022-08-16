@@ -1,36 +1,19 @@
-import { z, ZodError } from 'zod';
-import { PairDto, rootObjectSchema, RootPairDto } from './pair.dto';
+import { PairDto, rootPairSchema } from './pair.dto';
 
 const BASE_URL = 'https://api.dexscreener.com/latest/dex/pairs';
 
-export const getUrl = ({
-  pairAddress,
-  platformId,
-}: {
-  pairAddress: string;
-  platformId: string;
-}) => {
-  return [BASE_URL, platformId, pairAddress].join('/');
+export const getUrlForPairs = (platformId: string, pairAddresses: string[]) => {
+  return [BASE_URL, platformId, pairAddresses.join(',')].join('/');
 };
 
-export const loadPairInfo = async (url: string): Promise<RootPairDto> => {
-  try {
-    const response = await fetch(url);
+export const loadPairInfo = async (url: string): Promise<PairDto[]> => {
+  const response = await fetch(url);
 
-    if (response.status > 200)
-      throw new Error('Unable to get result from dexscreener api');
+  if (response.status > 200) throw new Error('Unable to get result from dexscreener api');
 
-    const data = await response.json();
+  const data = await response.json();
 
-    const output = rootObjectSchema.parse(data);
+  const output = rootPairSchema.parse(data);
 
-    return output;
-  } catch (err) {
-    if (err instanceof ZodError) {
-      console.error('Validation error', err);
-      console.log(url);
-    }
-
-    throw err;
-  }
+  return output.pairs;
 };

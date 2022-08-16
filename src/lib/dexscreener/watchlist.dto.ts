@@ -16,3 +16,5 @@ export const watchListSchema = z.object({
   updatedAtTimestamp: z.number(),
   lists: z.array(pair),
 });
+
+export type WatchListInputDto = z.infer<typeof watchListSchema>;
